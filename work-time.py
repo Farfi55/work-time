@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import datetime
 import sys
+import os
+import argparse
 
 date_format = "%d %b %y"
 
@@ -386,50 +388,90 @@ def usage():
 # decide what to do based on the arguments
 time_data: List['TimeRow'] = []
 
+def edit(editor: str):
+    if editor == "os":
+        if sys.platform == "linux":
+            editor = "xdg-open"
+        elif sys.platform == "darwin":
+            editor = "open"
+        elif sys.platform == "win32":
+            editor = "start"
+    
+    os.system(editor + " " + FILE_PATH)
+
+
+
 def main():
-        read_data()
+    read_data()
 
-        if len(sys.argv) == 1:
-            show_today()
-            return
+    parser = argparse.ArgumentParser(
+        prog='worktime',
+        description='Track the time spent working and generate reports'
+    )
 
-        command = sys.argv[1]
+    subparsers = parser.add_subparsers(dest='command', required=True)
 
-        if command == "clock":
-            if len(sys.argv) == 2:
-                print("Missing argument")
-                return
+    # Subparser for 'clock' command
+    clock_parser = subparsers.add_parser('clock', help='Clock in or out')
+    clock_parser.add_argument('direction', choices=['in', 'out'], help='Clock in or out')
+    clock_parser.add_argument('time', nargs='?', help='Time in HH:MM format (optional)', default=None)
 
-            if len(sys.argv) == 4:
-                time = datetime.datetime.strptime(sys.argv[3], "%H:%M")
+    # Subparser for 'today' command
+    subparsers.add_parser('today', help='Show the time worked today')
+
+    # Subparser for 'week' command
+    week_parser = subparsers.add_parser('week', help='Show the time worked this week')
+    # -1 -> last week, 0 -> this week, 32 -> week 32
+    week_parser.add_argument('week', nargs='?', help='Specify a week (optional)', default=None)
+
+    # Subparser for 'month' command
+    month_parser = subparsers.add_parser('month', help='Show the time worked this month')
+    month_parser.add_argument('month', nargs='?', help='Specify a month (optional)', default=None)
+
+    # Subparser for 'all' command
+    subparsers.add_parser('all', help='Show the total time worked')
+
+    # Subparser for 'edit' command, can specify ['code', 'nano', 'vim', ...]
+    edit_parser = subparsers.add_parser('edit', help='Open the data file in the default editor')
+    edit_parser.add_argument('editor', choices=['code', 'nano', 'vim', 'os'], default='m')
+
+    # Subparser for 'update' command
+    subparsers.add_parser('update', help='Update the time data')
+
+    # Parse arguments
+    args = parser.parse_args()
+
+    # Handle the 'clock' command
+    if args.command == 'clock':
+        if args.time:
+            try:
+                time = datetime.datetime.strptime(args.time, "%H:%M")
                 time = datetime.datetime.combine(datetime.datetime.now().date(), time.time())
-            else:
-                time = None
-
-            if sys.argv[2] == "in":
-                clock_in(time)
-            elif sys.argv[2] == "out":
-                clock_out(time)
-            else:
-                print("Invalid command")
-                usage()
-            return
-        elif command == "today":
-            show_today()
-        elif command == "week":
-            show_week()
-        elif command == "month":
-            show_month()
-        elif command == "all":
-            show_all()
-        elif command == "update":
-            update(skip_whem_no_intervals=True, interactive=True)
-        elif command == "help":
-            usage()
+            except ValueError:
+                print("Invalid time format. Use HH:MM.")
+                return
         else:
-            print("Invalid command")
-            usage()
-            return
+            time = None
+
+        if args.direction == 'in':
+            clock_in(time)
+        elif args.direction == 'out':
+            clock_out(time)
+
+    # Handle other commands
+    elif args.command == 'today':
+        show_today()
+    elif args.command == 'week':
+        show_week()
+    elif args.command == 'month':
+        show_month()
+    elif args.command == 'all':
+        show_all()
+    elif args.command == 'edit':
+        edit(args.editor)
+    elif args.command == 'update':
+        update(skip_whem_no_intervals=True, interactive=True)
+
 
 FILE_PATH = "/home/farfi/Dev/sebyone/time-tracker.csv"
 
