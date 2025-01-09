@@ -3,10 +3,13 @@ import datetime
 import sys
 import os
 import argparse
+from typing import List
 
 date_format = "%d %b %y"
 
-from typing import List
+VERSION = "0.1.0"
+AUTHOR = "Alessio Farfaglia"
+REPO = "https://github.com/Farfi55/work-time.git"
 
 class TimeRow:
     def __init__(self, date: datetime.date=None, minutes: int=0, intervals: List['TimeInterval']=None):
@@ -251,13 +254,23 @@ def show_today():
 
 
 
-def show_week():
+def show_week(week_number=None):
     # show a recap of every day of the week, even if there is no data
     today = datetime.datetime.now()
-    week = today.isocalendar()[1]
+    week = int(today.strftime("%W"))
     year = today.year
 
+    if week_number is not None:
+        week_number = int(week_number)
+        if week_number < 0:
+            week = week + week_number
+        else:
+            week = week_number
+    
+
     total_time = 0
+    print(f"Week {week} ({year})")
+    print(f"{'Day':<10} {'Date':<10} {'Time':<10}")
 
     for i in range(7):
         day = datetime.datetime.strptime(f"{year}-{week}-{(i+1)%7}", "%Y-%W-%w")
@@ -286,11 +299,27 @@ def show_week():
 
     print(f"\nTotal time: {format_minutes(total_time, False)}")
 
-def show_month():
+def show_month(custom_month=None):
     # show a recap of every day of the month, even if there is no data
     today = datetime.datetime.now()
     month = today.month
     year = today.year
+
+    if custom_month is not None:
+        # check if custom month is a number
+        try: 
+            custom_month = int(custom_month)
+            if custom_month < 0:
+                month = month + custom_month
+            else:
+                month = custom_month
+        except ValueError:
+            # try to check if it is a month name
+            try:
+                month = datetime.datetime.strptime(custom_month, "%B").month
+            except ValueError:
+                print("Invalid month")
+                return
 
     total_time = 0
 
@@ -363,28 +392,6 @@ def update(skip_whem_no_intervals=True, interactive=False):
     write_data()
 
 
-
-def usage():
-    print("Usage: time-tracker.py <command>")
-    print("Commands:")
-
-    print("  clock in [HH:MM]\t Clock in at the current time or at the specified time")
-    
-    print("  clock out [HH:MM]\t Clock out at the current time or at the specified time")
-    
-    print("  help\t\t\t Show this help message")
-    
-    print("  today\t\t\t Show the time worked today")
-    print("  week [week]\t\t Show the time worked this week or the specified one")
-    print("  month [month]\t\t Show the time worked this month or the specified one")
-    print("  all\t\t\t Show the total time worked")
-
-    print("  edit\t\t\t Open the data file in the default editor")
-
-    print("  update\t\t Update the time data")
-
-
-
 # decide what to do based on the arguments
 time_data: List['TimeRow'] = []
 
@@ -426,6 +433,9 @@ def main():
 
     # Subparser for 'month' command
     month_parser = subparsers.add_parser('month', help='Show the time worked this month')
+    # -1 -> last month, 0 -> this month, 12 -> December
+    # can also specify the month name
+    # august, december, ...
     month_parser.add_argument('month', nargs='?', help='Specify a month (optional)', default=None)
 
     # Subparser for 'all' command
@@ -437,6 +447,12 @@ def main():
 
     # Subparser for 'update' command
     subparsers.add_parser('update', help='Update the time data')
+
+    # Subparser for 'version' command
+    parser.add_argument('-V', '--version', action='version', version=f'%(prog)s {VERSION} by {AUTHOR} - {REPO}')
+
+
+
 
     # Parse arguments
     args = parser.parse_args()
@@ -462,9 +478,9 @@ def main():
     elif args.command == 'today':
         show_today()
     elif args.command == 'week':
-        show_week()
+        show_week(args.week)
     elif args.command == 'month':
-        show_month()
+        show_month(args.month)
     elif args.command == 'all':
         show_all()
     elif args.command == 'edit':
