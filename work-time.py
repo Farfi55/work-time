@@ -5,14 +5,18 @@ import os
 import argparse
 from typing import List
 
-date_format = "%d %b %y"
+date_format = "%a %d %b %y"
 
 VERSION = "0.1.0"
 AUTHOR = "Alessio Farfaglia"
 REPO = "https://github.com/Farfi55/work-time.git"
 
 class TimeRow:
-    def __init__(self, date: datetime.date=None, minutes: int=0, intervals: List['TimeInterval']=None):
+    def __init__(self, 
+                 date: datetime.date=None, 
+                 minutes: int=0, 
+                 intervals: List['TimeInterval']=None, 
+                 notes: List['Note']=None):
         # use datetime to parse the date
         if date is None:
             date = datetime.datetime.now()
@@ -21,6 +25,10 @@ class TimeRow:
         if intervals is None:
             intervals = []
         self.intervals = intervals
+        if notes is None:
+            notes = []
+        self.notes = notes
+
     
     def __str__(self):
         return f"Date: {self.formatted_date}, Duration: {format_minutes(self.duration_minutes, False)}, Intervals: {self.intervals}"
@@ -29,11 +37,11 @@ class TimeRow:
         return self.__str__()
 
     def to_csv(self):
-        intervals = ""
-        for interval in self.intervals:
-            intervals += f";\t{str(interval)}"
+        intervals = ",\t".join([str(interval) for interval in self.intervals])
 
-        return f"{self.formatted_date};\t{self.formatted_duration}{intervals}"
+        notes = "\t".join([str(note) for note in self.notes])
+
+        return f"{self.formatted_date};\t{self.formatted_duration};\t{intervals};\t{notes}"
     
     @property
     def day(self):
@@ -60,6 +68,11 @@ class TimeRow:
         for interval in self.intervals:
             total += interval.delta()
         return total
+    
+    def add_note(self, note: 'Note'):
+        self.notes.append(note)
+        # sort the notes by time
+        self.notes.sort()
 
 class TimeInterval:
     def __init__(self, begin:datetime.datetime=None, end:datetime.datetime=None):
@@ -96,8 +109,35 @@ class TimeInterval:
     def __repr__(self):
         return self.__str__()
 
+class Note:
+
+    def __init__(self, text: str, time: datetime.datetime):
+        if not text.endswith("."):
+            text += "."
+        self.text = text
+        self.time = time
+
+    def __str__(self):
+        return f"[{format_time(self.time)}] {self.text}"
+    
+    def __repr__(self):
+        return self.__str__()
+    
+    # order notes by time
+    def __lt__(self, other: 'Note'):
+        return self.time < other.time
+    
+
 def parse_date(date) -> datetime.date:
-    return datetime.datetime.strptime(date, date_format)
+    try:
+        return datetime.datetime.strptime(date, date_format)
+    except ValueError:
+        try:
+            return datetime.datetime.strptime(date, date_format[3:])
+        except ValueError:
+            print(f"Invalid date format: {date}")
+            sys.exit(1)
+        
 
 def parse_line(line):
     parts = line.strip().split(';')
@@ -108,8 +148,8 @@ def parse_line(line):
     
     # Extracting the time intervals
     intervals = []
-    for interval_raw in parts[2:]:
-        (interval_parts) = interval_raw.split(' - ')
+    for interval_raw in parts[2].split(',\t'):
+        interval_parts = interval_raw.split(' - ')
         if len(interval_parts) == 2:
             (begin, end) = interval_parts
             interval = TimeInterval()
@@ -117,14 +157,26 @@ def parse_line(line):
             begin = begin.strip()
             end = end.strip()
             if begin != "??:??":
-                interval.begin = datetime.datetime.combine(date.date(), datetime.datetime.strptime(begin, "%H:%M").time())
+                interval.begin = parse_time(begin, date.date())
             if end != "??:??":
-                interval.end = datetime.datetime.combine(date.date(), datetime.datetime.strptime(end, "%H:%M").time())
+                interval.end = parse_time(end, date.date())
             intervals.append(interval)
         else:
             print(f"Invalid interval: {interval_raw}, from line: {line}")
-                    
-    return TimeRow(date, duration, intervals)
+
+    notes = []
+    if len(parts) > 3:
+        for note_raw in parts[3].split('\t'):
+            note_raw = note_raw.strip()
+            if note_raw == "":
+                continue
+            # strip the brackets and the space
+            (time, text) = note_raw.split('] ')
+            time = parse_time(time[1:], date.date())
+            notes.append(Note(text, time))
+
+
+    return TimeRow(date, duration, intervals, notes)
 
 
 def read_data(skip_first_line=True):
@@ -137,7 +189,7 @@ def read_data(skip_first_line=True):
 def write_data():
     file.seek(0)
     file.truncate()
-    file.write("date;	duration;	begin - end\n")
+    file.write("date;	duration;	intervals;	notes\n")
     for data in time_data:
         file.write(data.to_csv() + "\n")
 
@@ -162,22 +214,23 @@ def time_now():
     return f"{now.hour:02d}:{now.minute:02d}"
     
 
-# clock in
-def clock_in(clock_in_time: datetime.datetime = None):
+def get_or_create_today() -> TimeRow:
     today_entry = None
-
-    # check if there is a entry for today
     if len(time_data) > 0:
         last_entry = time_data[-1]
 
         if last_entry.is_today():
             today_entry = last_entry
-        else:
-            print("First clock in today,", datetime.datetime.now().strftime(date_format))
             
     if today_entry is None:
         today_entry = TimeRow()
         time_data.append(today_entry)
+    return today_entry
+
+
+# clock in
+def clock_in(clock_in_time: datetime.datetime = None):
+    today_entry = get_or_create_today()
 
     
     if len(today_entry.intervals) > 0 and not today_entry.intervals[-1].is_complete():
@@ -204,10 +257,7 @@ def clock_out(clock_out_time: datetime.datetime = None):
         print("No data")
         return
     
-    today_entry = time_data[-1]
-    if not today_entry.is_today():
-        print("You have not clocked in today")
-        return
+    today_entry = get_or_create_today()
 
     if len(today_entry.intervals) == 0:
         print("You have not clocked in yet")
@@ -248,7 +298,12 @@ def show_today():
     for interval in data.intervals:
         print(f"  from {interval.formatted_begin} to {interval.formatted_end} ({interval.formatted_delta})")
 
-    daily_goal = 2 * 60
+    if len(data.notes) > 0:
+        print("Notes:")
+        for note in data.notes:
+            print(f"  {note}")
+
+    daily_goal = 4 * 60
     progress = int(running_total_time / daily_goal * 100)
     print(f"Running total time: {format_minutes(running_total_time, False)} ({progress}% of daily goal)")
 
@@ -270,7 +325,7 @@ def show_week(week_number=None):
 
     total_time = 0
     print(f"Week {week} ({year})")
-    print(f"{'Day':<10} {'Date':<10} {'Time':<10}")
+    print(f"{'Date':<15} {'Time':<10}")
 
     for i in range(7):
         day = datetime.datetime.strptime(f"{year}-{week}-{(i+1)%7}", "%Y-%W-%w")
@@ -285,7 +340,7 @@ def show_week(week_number=None):
             day_data = TimeRow(day)
             time_data.append(day_data)
         
-        print(f"{day.strftime('%A'):<10} {day_data.formatted_date}", end="")
+        print(f"{day_data.formatted_date}", end="")
         if len(day_data.intervals) == 0:
             print("  ------", end="")
         else:
@@ -293,6 +348,9 @@ def show_week(week_number=None):
             for interval in day_data.intervals:
                 print(f"  {interval}", end="")
         print()
+
+        for note in day_data.notes:
+            print(f"  {note}")
 
         if day.date() == today.date():
             break
@@ -310,7 +368,11 @@ def show_month(custom_month=None):
         try: 
             custom_month = int(custom_month)
             if custom_month < 0:
-                month = month + custom_month
+                while month + custom_month < 1:
+                    month += 12
+                    year -= 1
+                
+                month += custom_month                
             else:
                 month = custom_month
         except ValueError:
@@ -320,6 +382,8 @@ def show_month(custom_month=None):
             except ValueError:
                 print("Invalid month")
                 return
+
+    print(f"{datetime.datetime(year, month, 1).strftime('%B')} ({year})")
 
     total_time = 0
 
@@ -341,13 +405,17 @@ def show_month(custom_month=None):
             day_data = TimeRow(day)
             time_data.append(day_data)
         
-        print(f"{day.strftime('%A'):<10} {day_data.formatted_date}", end="")
+        print(day_data.formatted_date, end="")
         if len(day_data.intervals) == 0:
             print("  ------", end="")
         else:
             print(f"  ({day_data.formatted_duration})", end="")
             for interval in day_data.intervals:
                 print(f"  {interval}", end="")
+
+        for note in day_data.notes:
+            print(f"\t{note}", end="")
+
         print()
         if day.date() == today.date():
             break
@@ -406,6 +474,30 @@ def edit(editor: str):
     
     os.system(editor + " " + FILE_PATH)
 
+def note(text, time):
+    if time is None:
+        time = datetime.datetime.now()
+    
+    today_entry = get_or_create_today()
+    note = Note(text, time)
+    today_entry.add_note(note)
+
+    print(f"Added note: {note}")
+    write_data()
+    
+
+def parse_time(time: str, date: datetime.date=None):
+    if time:
+        try:
+            result = datetime.datetime.strptime(time, "%H:%M")
+            if date == None:
+                date = datetime.datetime.now().date()
+
+            return datetime.datetime.combine(date, result.time())
+        except ValueError:
+            print("Invalid time format. Use HH:MM.")
+            sys.exit(1)
+    return None
 
 
 def main():
@@ -448,6 +540,11 @@ def main():
     # Subparser for 'update' command
     subparsers.add_parser('update', help='Update the time data')
 
+    # Subparser for 'note' command
+    note_parser = subparsers.add_parser('note', help='Add a note to the time data')
+    note_parser.add_argument('note', help='The note to add')
+    note_parser.add_argument('time', nargs='?', help='Time in HH:MM format (optional)', default=None)
+
     # Subparser for 'version' command
     parser.add_argument('-V', '--version', action='version', version=f'%(prog)s {VERSION} by {AUTHOR} - {REPO}')
 
@@ -457,18 +554,10 @@ def main():
     # Parse arguments
     args = parser.parse_args()
 
+
     # Handle the 'clock' command
     if args.command == 'clock':
-        if args.time:
-            try:
-                time = datetime.datetime.strptime(args.time, "%H:%M")
-                time = datetime.datetime.combine(datetime.datetime.now().date(), time.time())
-            except ValueError:
-                print("Invalid time format. Use HH:MM.")
-                return
-        else:
-            time = None
-
+        time = parse_time(args.time)
         if args.direction == 'in':
             clock_in(time)
         elif args.direction == 'out':
@@ -487,7 +576,8 @@ def main():
         edit(args.editor)
     elif args.command == 'update':
         update(skip_whem_no_intervals=True, interactive=True)
-
+    elif args.command == 'note':
+        note(args.note, parse_time(args.time))
 
 FILE_PATH = "/home/farfi/Dev/sebyone/time-tracker.csv"
 
