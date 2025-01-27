@@ -283,7 +283,7 @@ def clock_out(clock_out_time: datetime.datetime = None):
 
 
 
-def show_today():
+def show_today(suppress_notes=False):
     if len(time_data) == 0:
         print("No data")
         return
@@ -298,7 +298,8 @@ def show_today():
     for interval in data.intervals:
         print(f"  from {interval.formatted_begin} to {interval.formatted_end} ({interval.formatted_delta})")
 
-    if len(data.notes) > 0:
+
+    if not suppress_notes and len(data.notes) > 0:
         print("Notes:")
         for note in data.notes:
             print(f"  {note}")
@@ -309,7 +310,7 @@ def show_today():
 
 
 
-def show_week(week_number=None):
+def show_week(week_number=None, suppress_notes=False):
     # show a recap of every day of the week, even if there is no data
     today = datetime.datetime.now()
     week = int(today.strftime("%W"))
@@ -349,15 +350,16 @@ def show_week(week_number=None):
                 print(f"  {interval}", end="")
         print()
 
-        for note in day_data.notes:
-            print(f"  {note}")
+        if not suppress_notes and len(day_data.notes) > 0:
+            for note in day_data.notes:
+                print(f"  {note}")
 
         if day.date() == today.date():
             break
 
     print(f"\nTotal time: {format_minutes(total_time, False)}")
 
-def show_month(custom_month=None):
+def show_month(custom_month=None, suppress_notes=False):
     # show a recap of every day of the month, even if there is no data
     today = datetime.datetime.now()
     month = today.month
@@ -413,8 +415,9 @@ def show_month(custom_month=None):
             for interval in day_data.intervals:
                 print(f"  {interval}", end="")
 
-        for note in day_data.notes:
-            print(f"\t{note}", end="")
+        if not suppress_notes and len(day_data.notes) > 0:
+            for note in day_data.notes:
+                print(f"\t{note}", end="")
 
         print()
         if day.date() == today.date():
@@ -426,7 +429,7 @@ def show_month(custom_month=None):
 
     print(f"\nTotal time: {format_minutes(total_time, False)}")
 
-def show_all():
+def show_all(suppress_notes=False):
     last_date = time_data[0].date
     print(f"   {last_date.strftime('%B')}")
     for data in time_data:
@@ -436,6 +439,11 @@ def show_all():
         print()
         if data.date.month != last_date.month:
             print(f"\n   {data.date.strftime('%B')}")
+        
+        if not suppress_notes and len(data.notes) > 0:
+            for note in data.notes:
+                print(f"\t{note}")
+
         last_date = data.date
 
 def update(skip_whem_no_intervals=True, interactive=False):
@@ -508,6 +516,8 @@ def main():
         description='Track the time spent working and generate reports'
     )
 
+    parser.add_argument('-N', '--no-notes', action='store_true', help='Suppress notes in the output')
+
     subparsers = parser.add_subparsers(dest='command', required=True)
 
     # Subparser for 'clock' command
@@ -554,7 +564,6 @@ def main():
     # Parse arguments
     args = parser.parse_args()
 
-
     # Handle the 'clock' command
     if args.command == 'clock':
         time = parse_time(args.time)
@@ -565,13 +574,13 @@ def main():
 
     # Handle other commands
     elif args.command == 'today':
-        show_today()
+        show_today(suppress_notes=args.no_notes)
     elif args.command == 'week':
-        show_week(args.week)
+        show_week(args.week, suppress_notes=args.no_notes)
     elif args.command == 'month':
-        show_month(args.month)
+        show_month(args.month, suppress_notes=args.no_notes)
     elif args.command == 'all':
-        show_all()
+        show_all(suppress_notes=args.no_notes)
     elif args.command == 'edit':
         edit(args.editor)
     elif args.command == 'update':
